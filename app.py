@@ -319,22 +319,44 @@ input_df = pd.DataFrame({
 })
 
 # ─────────────────────────────────────────────────────────────────────────────
-# COLUMN ALIGNMENT — enforce exact fit-time order from The_project.ipynb
-# Scaler was fit on:  df.drop('Outcome', axis=1)  which gives these 8 columns
-# in the order they appear in diabetes.csv — no engineered features at all.
+# FEATURE ENGINEERING — matches the pkl that was actually saved
+# The scaler requires these 11 columns in this exact order:
+#   8 raw features  +  Age_Glucose  +  BMI_Class  +  Insulin_Glucose_Ratio
 # ─────────────────────────────────────────────────────────────────────────────
-FIT_COLUMNS = [
-    "Pregnancies",
-    "Glucose",
-    "BloodPressure",
-    "SkinThickness",
-    "Insulin",
-    "BMI",
-    "DiabetesPedigreeFunction",
-    "Age",
-]
+def build_model_input(df: pd.DataFrame) -> pd.DataFrame:
+    d = df.copy()
 
-input_df_full = input_df[FIT_COLUMNS].copy()
+    # ── Engineered features ──────────────────────────────────────────────────
+    # 1. Age × Glucose interaction term
+    d["Age_Glucose"] = d["Age"] * d["Glucose"]
+
+    # 2. WHO BMI category  (Underweight=0, Normal=1, Overweight=2, Obese=3)
+    d["BMI_Class"] = pd.cut(
+        d["BMI"],
+        bins=[0, 18.5, 25.0, 30.0, float("inf")],
+        labels=[0, 1, 2, 3],
+    ).astype(float)
+
+    # 3. Insulin-to-Glucose ratio (proxy for insulin resistance)
+    d["Insulin_Glucose_Ratio"] = d["Insulin"] / d["Glucose"].replace(0, np.nan).fillna(1)
+
+    # ── Exact column order the scaler was fit on ─────────────────────────────
+    FIT_COLUMNS = [
+        "Pregnancies",
+        "Glucose",
+        "BloodPressure",
+        "SkinThickness",
+        "Insulin",
+        "BMI",
+        "DiabetesPedigreeFunction",
+        "Age",
+        "Age_Glucose",
+        "BMI_Class",
+        "Insulin_Glucose_Ratio",
+    ]
+    return d[FIT_COLUMNS]
+
+input_df_full = build_model_input(input_df)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PREDICTION
@@ -342,13 +364,14 @@ input_df_full = input_df[FIT_COLUMNS].copy()
 if model_loaded:
     input_scaled = scaler.transform(input_df_full)
     risk_score   = model.predict_proba(input_scaled)[0][1]
-    # Per-feature importance via input perturbation
+    # Per-feature importance via perturbation on the 8 raw slider columns
     baseline = risk_score
     feature_impacts = {}
-    for col in FIT_COLUMNS:
-        perturbed_df = input_df_full.copy()
+    for col in input_df.columns:
+        perturbed_df     = input_df.copy()
         perturbed_df[col] = perturbed_df[col] + perturbed_df[col].abs().mean() * 0.1 + 1e-3
-        perturbed_scaled = scaler.transform(perturbed_df[FIT_COLUMNS])
+        perturbed_full   = build_model_input(perturbed_df)
+        perturbed_scaled = scaler.transform(perturbed_full)
         perturbed_score  = model.predict_proba(perturbed_scaled)[0][1]
         feature_impacts[col] = round((perturbed_score - baseline) * 100, 2)
 else:
