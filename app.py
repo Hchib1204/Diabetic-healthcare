@@ -319,40 +319,22 @@ input_df = pd.DataFrame({
 })
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FEATURE ENGINEERING  — must exactly match what was done at training time
+# COLUMN ALIGNMENT — enforce exact fit-time order from The_project.ipynb
+# Scaler was fit on:  df.drop('Outcome', axis=1)  which gives these 8 columns
+# in the order they appear in diabetes.csv — no engineered features at all.
 # ─────────────────────────────────────────────────────────────────────────────
-def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Recreate the three derived columns the scaler/model was trained with."""
-    df = df.copy()
-    # 1. Interaction: Age x Glucose
-    df["Age_Glucose"] = df["Age"] * df["Glucose"]
-    # 2. BMI category buckets (WHO classification encoded as 0-3)
-    df["BMI_Class"] = pd.cut(
-        df["BMI"],
-        bins=[0, 18.5, 25.0, 30.0, float("inf")],
-        labels=[0, 1, 2, 3],
-    ).astype(float)
-    # 3. Insulin-to-glucose ratio (guard against zero glucose)
-    df["Insulin_Glucose_Ratio"] = df["Insulin"] / df["Glucose"].replace(0, 1)
-    return df
+FIT_COLUMNS = [
+    "Pregnancies",
+    "Glucose",
+    "BloodPressure",
+    "SkinThickness",
+    "Insulin",
+    "BMI",
+    "DiabetesPedigreeFunction",
+    "Age",
+]
 
-input_df_full = engineer_features(input_df)   # 11 columns — matches scaler
-
-# ─────────────────────────────────────────────────────────────────────────────
-# COLUMN ORDER FIX — reorder to exactly match what the scaler saw during fit
-# ─────────────────────────────────────────────────────────────────────────────
-def align_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Reorder (and if needed add missing) columns to match scaler's fit order."""
-    if model_loaded and hasattr(scaler, "feature_names_in_"):
-        expected = list(scaler.feature_names_in_)
-        # Add any column the scaler expects that we somehow missed (fill with 0)
-        for col in expected:
-            if col not in df.columns:
-                df[col] = 0.0
-        return df[expected]   # reorder to exact fit-time order
-    return df
-
-input_df_full = align_columns(input_df_full)
+input_df_full = input_df[FIT_COLUMNS].copy()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PREDICTION
@@ -360,14 +342,13 @@ input_df_full = align_columns(input_df_full)
 if model_loaded:
     input_scaled = scaler.transform(input_df_full)
     risk_score   = model.predict_proba(input_scaled)[0][1]
-    # Per-feature importance via input perturbation on raw columns only
+    # Per-feature importance via input perturbation
     baseline = risk_score
     feature_impacts = {}
-    for col in input_df.columns:
-        perturbed_df = input_df.copy()
+    for col in FIT_COLUMNS:
+        perturbed_df = input_df_full.copy()
         perturbed_df[col] = perturbed_df[col] + perturbed_df[col].abs().mean() * 0.1 + 1e-3
-        perturbed_full   = align_columns(engineer_features(perturbed_df))
-        perturbed_scaled = scaler.transform(perturbed_full)
+        perturbed_scaled = scaler.transform(perturbed_df[FIT_COLUMNS])
         perturbed_score  = model.predict_proba(perturbed_scaled)[0][1]
         feature_impacts[col] = round((perturbed_score - baseline) * 100, 2)
 else:
