@@ -326,21 +326,16 @@ input_df = pd.DataFrame({
 def build_model_input(df: pd.DataFrame) -> pd.DataFrame:
     d = df.copy()
 
-    # ── Engineered features ──────────────────────────────────────────────────
-    # 1. Age × Glucose interaction term
+    # Match the engineering logic from the training script
     d["Age_Glucose"] = d["Age"] * d["Glucose"]
-
-    # 2. WHO BMI category  (Underweight=0, Normal=1, Overweight=2, Obese=3)
     d["BMI_Class"] = pd.cut(
         d["BMI"],
         bins=[0, 18.5, 25.0, 30.0, float("inf")],
         labels=[0, 1, 2, 3],
     ).astype(float)
-
-    # 3. Insulin-to-Glucose ratio (proxy for insulin resistance)
     d["Insulin_Glucose_Ratio"] = d["Insulin"] / d["Glucose"].replace(0, np.nan).fillna(1)
 
-    # ── Exact column order the scaler was fit on ─────────────────────────────
+    # Use the exact same sequence as Step 1
     FIT_COLUMNS = [
         "Pregnancies",
         "Glucose",
@@ -350,9 +345,9 @@ def build_model_input(df: pd.DataFrame) -> pd.DataFrame:
         "BMI",
         "DiabetesPedigreeFunction",
         "Age",
-        "Age_Glucose",
-        "BMI_Class",
         "Insulin_Glucose_Ratio",
+        "BMI_Class",
+        "Age_Glucose",
     ]
     return d[FIT_COLUMNS]
 
